@@ -15,7 +15,12 @@ import type { CodexInitializeParams, CodexInitializeResult } from "./protocol/ty
 import type { CodexProviderSettings, TransportContext } from "./provider-settings";
 import { stripUndefined } from "./utils/object";
 export type { Model as CodexModel } from "./protocol/app-server-protocol/v2/Model";
-export type { CodexProviderSettings, McpServerConfig } from "./provider-settings";
+export type {
+    CodexCustomModelProviderSettings,
+    CodexModelProviderInfo,
+    CodexProviderSettings,
+    McpServerConfig,
+} from "./provider-settings";
 
 export interface CodexProvider extends ProviderV3
 {
@@ -77,6 +82,10 @@ export function createCodexAppServer(
 
     const resolvedSettings: Readonly<CodexProviderSettings> = Object.freeze(stripUndefined({
         defaultModel: settings.defaultModel,
+        modelProvider: settings.modelProvider,
+        customModelProviders: settings.customModelProviders
+            ? { ...settings.customModelProviders }
+            : undefined,
         experimentalApi: settings.experimentalApi,
         clientInfo: settings.clientInfo
             ? stripUndefined({

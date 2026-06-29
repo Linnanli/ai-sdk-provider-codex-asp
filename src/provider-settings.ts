@@ -48,6 +48,48 @@ export interface CodexTurnDefaults
     summary?: "auto" | "concise" | "detailed" | "none";
 }
 
+export interface CodexModelProviderInfo
+{
+    /** Friendly display name for the provider. */
+    name?: string;
+    /** Base URL for the provider's OpenAI-compatible Responses API. */
+    base_url?: string;
+    /** Environment variable that stores the provider API key. */
+    env_key?: string;
+    /** Instructions shown when the environment key is missing. */
+    env_key_instructions?: string;
+    /** Bearer token sent to the provider. Prefer env_key when possible. */
+    experimental_bearer_token?: string;
+    /** Wire protocol used by Codex app server. Current Codex builds support "responses". */
+    wire_api?: "responses";
+    /** Query parameters appended to the provider base URL. */
+    query_params?: Record<string, string>;
+    /** Literal HTTP headers sent to the provider. */
+    http_headers?: Record<string, string>;
+    /** HTTP headers whose values are read from environment variables. */
+    env_http_headers?: Record<string, string>;
+    /** Maximum retries for non-streaming HTTP requests. */
+    request_max_retries?: number;
+    /** Maximum retries for dropped streaming responses. */
+    stream_max_retries?: number;
+    /** Streaming idle timeout in milliseconds. */
+    stream_idle_timeout_ms?: number;
+    /** WebSocket connection timeout in milliseconds. */
+    websocket_connect_timeout_ms?: number;
+    /** Whether Codex should require OpenAI auth before using this provider. */
+    requires_openai_auth?: boolean;
+    /** Whether the provider supports Responses-over-WebSocket. */
+    supports_websockets?: boolean;
+}
+
+export interface CodexCustomModelProviderSettings
+{
+    /** Provider id selected from customModelProviders. */
+    modelProvider?: string;
+    /** Session-owned model providers injected into Codex app server thread config. */
+    customModelProviders?: Record<string, CodexModelProviderInfo>;
+}
+
 /**
  * Per-call overrides passed via `providerOptions[CODEX_PROVIDER_ID]` in
  * `streamText()` / `generateText()`. Values here take precedence over
@@ -118,7 +160,7 @@ export type McpServerConfig =
     | { type: "http"; url: string; bearerToken?: string; headers?: Record<string, string> };
 
 /** Settings for the Codex provider, passed to `createCodexAppServer()`. */
-export interface CodexProviderSettings
+export interface CodexProviderSettings extends CodexCustomModelProviderSettings
 {
     /** Model ID used when none is specified per-call (e.g. `"o4-mini"`). */
     defaultModel?: string;

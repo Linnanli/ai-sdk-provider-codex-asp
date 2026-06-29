@@ -265,6 +265,59 @@ describe("CodexLanguageModel.doStream", () =>
         });
     });
 
+    it("passes configured custom model providers through thread/start config", async () =>
+    {
+        const transport = new ScriptedTransport();
+
+        const provider = createCodexAppServer({
+            transportFactory: () => transport,
+            clientInfo: { name: "test-client", version: "1.0.0" },
+            customModelProviders: {
+                qwen: {
+                    name: "qwen",
+                    base_url: "http://127.0.0.1:4010/v1",
+                    wire_api: "responses",
+                    experimental_bearer_token: "sk-test",
+                    requires_openai_auth: false,
+                    request_max_retries: 0,
+                    stream_max_retries: 0,
+                },
+            },
+        });
+
+        const model = provider.languageModel("qwen3.7-plus");
+
+        const { stream } = await model.doStream({
+            prompt: [{ role: "user", content: [{ type: "text", text: "你好" }] }],
+        });
+
+        await readAll(stream);
+
+        const threadStartMessage = transport.sentMessages.find(
+            (message): message is { method: string; params?: unknown } =>
+                "method" in message && message.method === "thread/start",
+        );
+
+        expect(threadStartMessage?.params).toMatchObject({
+            model: "qwen3.7-plus",
+            modelProvider: "qwen",
+            config: {
+                model_provider: "qwen",
+                model_providers: {
+                    qwen: {
+                        name: "qwen",
+                        base_url: "http://127.0.0.1:4010/v1",
+                        wire_api: "responses",
+                        experimental_bearer_token: "sk-test",
+                        requires_openai_auth: false,
+                        request_max_retries: 0,
+                        stream_max_retries: 0,
+                    },
+                },
+            },
+        });
+    });
+
     it("resumes an existing thread when providerMetadata carries a threadId", async () =>
     {
         const transport = new ScriptedTransport();

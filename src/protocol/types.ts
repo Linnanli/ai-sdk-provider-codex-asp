@@ -115,6 +115,7 @@ export interface CodexDynamicToolDefinition
 export interface CodexThreadStartParams
 {
     model?: string;
+    modelProvider?: string;
     cwd?: string;
     approvalPolicy?: AskForApproval;
     approvalsReviewer?: ApprovalsReviewer;

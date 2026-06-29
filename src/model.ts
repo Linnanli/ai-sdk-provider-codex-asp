@@ -37,16 +37,18 @@ import type {
     CodexTurnStartParams,
     CodexTurnStartResult,
 } from "./protocol/types";
-import type { CodexCallOptions, CodexCompactionOnResumeContext, CodexProviderSettings } from "./provider-settings";
+import type {
+    CodexCallOptions,
+    CodexCompactionOnResumeContext,
+    CodexCustomModelProviderSettings,
+    CodexModelProviderInfo,
+    CodexProviderSettings,
+} from "./provider-settings";
 import { CodexSessionImpl } from "./session";
 import { stripUndefined } from "./utils/object";
 import { mapSystemPrompt, PromptFileResolver } from "./utils/prompt-file-resolver";
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface CodexLanguageModelSettings
-{
-    // intentionally empty — settings will be added as the API evolves
-}
+export type CodexLanguageModelSettings = CodexCustomModelProviderSettings;
 
 export type { CodexCallOptions, CodexThreadDefaults, CodexTurnDefaults } from "./provider-settings";
 
@@ -281,6 +283,96 @@ function isPassThroughContentPart(
         default:
             return false;
     }
+}
+
+function stripModelProviderInfo(provider: CodexModelProviderInfo): Record<string, JsonValue>
+{
+    const info: Record<string, JsonValue> = {};
+    setJsonField(info, "name", provider.name);
+    setJsonField(info, "base_url", provider.base_url);
+    setJsonField(info, "env_key", provider.env_key);
+    setJsonField(info, "env_key_instructions", provider.env_key_instructions);
+    setJsonField(info, "experimental_bearer_token", provider.experimental_bearer_token);
+    setJsonField(info, "wire_api", provider.wire_api);
+    setJsonField(info, "query_params", provider.query_params);
+    setJsonField(info, "http_headers", provider.http_headers);
+    setJsonField(info, "env_http_headers", provider.env_http_headers);
+    setJsonField(info, "request_max_retries", provider.request_max_retries);
+    setJsonField(info, "stream_max_retries", provider.stream_max_retries);
+    setJsonField(info, "stream_idle_timeout_ms", provider.stream_idle_timeout_ms);
+    setJsonField(info, "websocket_connect_timeout_ms", provider.websocket_connect_timeout_ms);
+    setJsonField(info, "requires_openai_auth", provider.requires_openai_auth);
+    setJsonField(info, "supports_websockets", provider.supports_websockets);
+    return info;
+}
+
+function setJsonField(
+    target: Record<string, JsonValue>,
+    key: string,
+    value: JsonValue | undefined,
+): void
+{
+    if (value !== undefined)
+    {
+        target[key] = value;
+    }
+}
+
+function resolveCustomModelProviderSettings(
+    providerSettings: Readonly<CodexProviderSettings>,
+    modelSettings: CodexLanguageModelSettings,
+): { modelProvider?: string; config?: Record<string, JsonValue | undefined> }
+{
+    const customModelProviders = {
+        ...providerSettings.customModelProviders,
+        ...modelSettings.customModelProviders,
+    };
+    const providerEntries = Object.entries(customModelProviders);
+
+    if (providerEntries.length === 0)
+    {
+        return {};
+    }
+
+    const modelProvider = modelSettings.modelProvider
+        ?? providerSettings.modelProvider
+        ?? (providerEntries.length === 1 ? providerEntries[0]?.[0] : undefined);
+
+    const modelProvidersConfig = Object.fromEntries(
+        providerEntries.map(([providerId, provider]) => [
+            providerId,
+            stripModelProviderInfo(provider),
+        ]),
+    ) as Record<string, JsonValue>;
+
+    const resolved: { modelProvider?: string; config?: Record<string, JsonValue | undefined> } = {
+        config: stripUndefined({
+            model_provider: modelProvider,
+            model_providers: modelProvidersConfig,
+        }),
+    };
+
+    if (modelProvider)
+    {
+        resolved.modelProvider = modelProvider;
+    }
+
+    return resolved;
+}
+
+function mergeThreadConfig(
+    ...configs: Array<Record<string, JsonValue | undefined> | undefined>
+): Record<string, JsonValue | undefined> | undefined
+{
+    const merged: Record<string, JsonValue | undefined> = {};
+    for (const config of configs)
+    {
+        if (config)
+        {
+            Object.assign(merged, config);
+        }
+    }
+    return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 export class CodexLanguageModel implements LanguageModelV3 
@@ -871,6 +963,10 @@ export class CodexLanguageModel implements LanguageModelV3
                         debugLog?.("inbound", "extractResumeThreadId", { resumeThreadId });
 
                         const developerInstructions = mapSystemPrompt(options.prompt);
+                        const customModelProviderSettings = resolveCustomModelProviderSettings(
+                            this.config.providerSettings,
+                            this.settings,
+                        );
 
                         let threadId: string;
 
@@ -879,6 +975,8 @@ export class CodexLanguageModel implements LanguageModelV3
                             const resumeParams: CodexThreadResumeParams = stripUndefined({
                                 threadId: resumeThreadId,
                                 developerInstructions,
+                                modelProvider: customModelProviderSettings.modelProvider,
+                                config: customModelProviderSettings.config,
                                 cwd: callOptions?.cwd ?? this.config.providerSettings.defaultThreadSettings?.cwd,
                                 approvalPolicy: callOptions?.approvalPolicy ?? this.config.providerSettings.defaultThreadSettings?.approvalPolicy,
                                 approvalsReviewer: callOptions?.approvalsReviewer ?? this.config.providerSettings.defaultThreadSettings?.approvalsReviewer,
@@ -959,12 +1057,17 @@ export class CodexLanguageModel implements LanguageModelV3
                         else
                         {
                             const mcpServers = this.config.providerSettings.mcpServers;
-                            const config = mcpServers
+                            const mcpConfig = mcpServers
                                 ? { mcp_servers: mcpServers } as CodexThreadStartParams["config"]
                                 : undefined;
+                            const config = mergeThreadConfig(
+                                mcpConfig,
+                                customModelProviderSettings.config,
+                            );
 
                             const threadStartParams: CodexThreadStartParams = stripUndefined({
                                 model: this.modelId || this.config.providerSettings.defaultModel,
+                                modelProvider: customModelProviderSettings.modelProvider,
                                 dynamicTools,
                                 developerInstructions,
                                 config,

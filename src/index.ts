@@ -95,6 +95,7 @@ export type {
 } from "./protocol/types";
 export type {
     CodexModel,
+    CodexModelProviderInfo,
     CodexProvider,
     CodexProviderSettings,
     McpServerConfig,
@@ -104,7 +105,7 @@ export {
     createCodexAppServer,
     createCodexProvider,
 } from "./provider";
-export type { TransportContext } from "./provider-settings";
+export type { CodexCustomModelProviderSettings, TransportContext } from "./provider-settings";
 export type { CodexSession } from "./session";
 export type { FileWriter } from "./utils/prompt-file-resolver";
 export { mapSystemPrompt } from "./utils/prompt-file-resolver";
