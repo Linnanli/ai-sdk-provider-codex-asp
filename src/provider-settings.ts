@@ -19,6 +19,8 @@ export interface CodexThreadDefaults
 {
     /** Working directory for the thread. */
     cwd?: string;
+    /** Thread-scoped runtime workspace roots. Paths must be absolute. */
+    runtimeWorkspaceRoots?: string[];
     /** Tool-use approval policy — `"never"` | `"on-failure"` | `"on-request"` | `"untrusted"` | `{ granular: … }`. See {@link AskForApproval}. */
     approvalPolicy?: AskForApproval;
     /** Routes approval requests for the thread to `"user"` or `"guardian_subagent"`. */
@@ -34,6 +36,8 @@ export interface CodexTurnDefaults
 {
     /** Working directory for the turn (overrides thread-level `cwd`). */
     cwd?: string;
+    /** Turn-scoped runtime workspace roots. Paths must be absolute. */
+    runtimeWorkspaceRoots?: string[];
     /** Tool-use approval policy for this turn. */
     approvalPolicy?: AskForApproval;
     /** Routes approval requests for this turn to `"user"` or `"guardian_subagent"`. */
@@ -101,6 +105,8 @@ export interface CodexCallOptions
 
     /** Working directory for this call. Also sent as turn-level `cwd`. */
     cwd?: string;
+    /** Runtime workspace roots for thread/start, thread/resume, and turn/start. Paths must be absolute. */
+    runtimeWorkspaceRoots?: string[];
     /** Tool-use approval policy — `"never"` | `"on-failure"` | `"on-request"` | `"untrusted"` | `{ granular: … }`. See {@link AskForApproval}. */
     approvalPolicy?: AskForApproval;
     /** Routes approval requests to `"user"` or `"guardian_subagent"`. */

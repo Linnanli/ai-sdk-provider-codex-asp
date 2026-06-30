@@ -2,7 +2,7 @@ import type { LanguageModelV3CallOptions } from "@ai-sdk/provider";
 import { describe, expect, it, vi } from "vitest";
 
 import type { JsonRpcMessage } from "../src/client/transport";
-import { CODEX_PROVIDER_ID } from "../src/protocol/provider-metadata";
+import { CODEX_PROVIDER_ID, codexCallOptions } from "../src/protocol/provider-metadata";
 import { createCodexAppServer } from "../src/provider";
 import { MockTransport } from "./helpers/mock-transport";
 
@@ -318,6 +318,46 @@ describe("CodexLanguageModel.doStream", () =>
         });
     });
 
+    it("passes runtime workspace roots through thread/start and turn/start", async () =>
+    {
+        const transport = new ScriptedTransport();
+        const provider = createCodexAppServer({
+            transportFactory: () => transport,
+            clientInfo: { name: "test-client", version: "1.0.0" },
+            experimentalApi: true,
+        });
+
+        const model = provider.languageModel("gpt-5.5");
+
+        const { stream } = await model.doStream({
+            prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+            providerOptions: codexCallOptions({
+                cwd: "/repo",
+                runtimeWorkspaceRoots: ["/repo", "/repo/packages/api"],
+            }),
+        });
+
+        await readAll(stream);
+
+        const threadStartMessage = transport.sentMessages.find(
+            (message): message is { method: string; params?: unknown } =>
+                "method" in message && message.method === "thread/start",
+        );
+        const turnStartMessage = transport.sentMessages.find(
+            (message): message is { method: string; params?: unknown } =>
+                "method" in message && message.method === "turn/start",
+        );
+
+        expect(threadStartMessage?.params).toMatchObject({
+            cwd: "/repo",
+            runtimeWorkspaceRoots: ["/repo", "/repo/packages/api"],
+        });
+        expect(turnStartMessage?.params).toMatchObject({
+            cwd: "/repo",
+            runtimeWorkspaceRoots: ["/repo", "/repo/packages/api"],
+        });
+    });
+
     it("resumes an existing thread when providerMetadata carries a threadId", async () =>
     {
         const transport = new ScriptedTransport();
@@ -363,6 +403,57 @@ describe("CodexLanguageModel.doStream", () =>
         );
         expect(turnStartMessage?.params).toMatchObject({
             input: [{ type: "text", text: "continue", text_elements: [] }],
+        });
+    });
+
+    it("passes runtime workspace roots through thread/resume and turn/start", async () =>
+    {
+        const transport = new ScriptedTransport();
+
+        const provider = createCodexAppServer({
+            transportFactory: () => transport,
+            clientInfo: { name: "test-client", version: "1.0.0" },
+            experimentalApi: true,
+        });
+
+        const model = provider.languageModel("gpt-5.5");
+
+        const { stream } = await model.doStream({
+            prompt: [
+                { role: "user", content: [{ type: "text", text: "hi" }] },
+                {
+                    role: "assistant",
+                    content: [{ type: "text", text: "Hello" }],
+                    providerOptions: { [CODEX_PROVIDER_ID]: { threadId: "thr_existing" } },
+                },
+                { role: "user", content: [{ type: "text", text: "continue" }] },
+            ],
+            providerOptions: codexCallOptions({
+                cwd: "/repo",
+                runtimeWorkspaceRoots: ["/repo"],
+            }),
+        });
+
+        await readAll(stream);
+
+        const resumeMessage = transport.sentMessages.find(
+            (message): message is { method: string; params?: unknown } =>
+                "method" in message && message.method === "thread/resume",
+        );
+        const turnStartMessage = transport.sentMessages.find(
+            (message): message is { method: string; params?: unknown } =>
+                "method" in message && message.method === "turn/start",
+        );
+
+        expect(resumeMessage?.params).toMatchObject({
+            threadId: "thr_existing",
+            cwd: "/repo",
+            runtimeWorkspaceRoots: ["/repo"],
+        });
+        expect(turnStartMessage?.params).toMatchObject({
+            threadId: "thr_1",
+            cwd: "/repo",
+            runtimeWorkspaceRoots: ["/repo"],
         });
     });
 
