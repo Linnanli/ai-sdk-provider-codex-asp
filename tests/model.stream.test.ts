@@ -406,6 +406,42 @@ describe("CodexLanguageModel.doStream", () =>
         });
     });
 
+    it("resumes an existing thread from explicit call options without provider metadata", async () =>
+    {
+        const transport = new ScriptedTransport();
+
+        const provider = createCodexAppServer({
+            transportFactory: () => transport,
+            clientInfo: { name: "test-client", version: "1.0.0" },
+            experimentalApi: true,
+        });
+
+        const model = provider.languageModel("gpt-5.5");
+
+        const { stream } = await model.doStream({
+            prompt: [
+                { role: "user", content: [{ type: "text", text: "continue" }] },
+            ],
+            providerOptions: codexCallOptions({
+                resumeThreadId: "thr_explicit",
+            }),
+        });
+
+        await readAll(stream);
+
+        const methods = transport.sentMessages
+            .filter((message): message is { method: string } => "method" in message)
+            .map((message) => message.method);
+
+        expect(methods).toEqual(["initialize", "initialized", "thread/resume", "turn/start"]);
+
+        const resumeMessage = transport.sentMessages.find(
+            (message): message is { method: string; params?: unknown } =>
+                "method" in message && message.method === "thread/resume",
+        );
+        expect(resumeMessage?.params).toMatchObject({ threadId: "thr_explicit" });
+    });
+
     it("passes runtime workspace roots through thread/resume and turn/start", async () =>
     {
         const transport = new ScriptedTransport();

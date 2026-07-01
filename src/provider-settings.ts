@@ -103,6 +103,8 @@ export interface CodexCallOptions
 {
     // — Thread-level (applied to thread/start and thread/resume) —
 
+    /** Existing app-server thread id to resume before starting this turn. */
+    resumeThreadId?: string;
     /** Working directory for this call. Also sent as turn-level `cwd`. */
     cwd?: string;
     /** Runtime workspace roots for thread/start, thread/resume, and turn/start. Paths must be absolute. */
