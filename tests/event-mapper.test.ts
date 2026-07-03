@@ -345,7 +345,7 @@ describe("CodexEventMapper", () =>
         ]);
     });
 
-    it("maps webSearch to provider-executed tool parts and keeps collabAgentToolCall as reasoning", () =>
+    it("maps webSearch and collabAgentToolCall to provider-executed tool parts", () =>
     {
         const mapper = new CodexEventMapper();
 
@@ -427,11 +427,23 @@ describe("CodexEventMapper", () =>
 
         const parts = events.flatMap((event) => mapper.map(event));
 
-        // The empty placeholder at item/started is suppressed; the tool-call carries
-        // the real query/action from item/completed, paired with its result.
+        // The empty webSearch placeholder at item/started is suppressed; the
+        // tool-call carries the real query/action from item/completed.
         expect(parts).toEqual([
             { type: "stream-start", warnings: [] },
-            { type: "reasoning-start", id: "collab_1" },
+            {
+                type: "tool-call",
+                toolCallId: "collab_1",
+                toolName: "codex_collab_agent",
+                input: JSON.stringify({
+                    tool: { type: "ask" },
+                    status: "inProgress",
+                    senderThreadId: "thr",
+                    receiverThreadIds: [],
+                }),
+                providerExecuted: true,
+                dynamic: true,
+            },
             {
                 type: "tool-call",
                 toolCallId: "ws_1",
@@ -446,7 +458,112 @@ describe("CodexEventMapper", () =>
                 toolName: "codex_web_search",
                 result: { item: completedItem },
             },
-            { type: "reasoning-end", id: "collab_1" },
+            {
+                type: "tool-result",
+                toolCallId: "collab_1",
+                toolName: "codex_collab_agent",
+                result: {
+                    item: {
+                        type: "collabAgentToolCall",
+                        id: "collab_1",
+                        tool: { type: "ask" },
+                        status: "completed",
+                        senderThreadId: "thr",
+                        receiverThreadIds: [],
+                        prompt: null,
+                        agentsStates: {},
+                    },
+                },
+            },
+            {
+                type: "finish",
+                finishReason: { unified: "stop", raw: "completed" },
+                usage: EMPTY_USAGE,
+            },
+        ]);
+    });
+
+    it("maps non-text operational ThreadItems to provider-executed tool parts", () =>
+    {
+        const mapper = new CodexEventMapper();
+        const cases = [
+            {
+                item: { type: "imageView", id: "image_view_1", path: "/tmp/plot.png" },
+                toolName: "codex_image_view",
+                input: { path: "/tmp/plot.png" },
+            },
+            {
+                item: { type: "contextCompaction", id: "compact_1" },
+                toolName: "codex_context_compaction",
+                input: {},
+            },
+            {
+                item: {
+                    type: "hookPrompt",
+                    id: "hook_1",
+                    fragments: [{ text: "AGENTS.md instructions", hookRunId: "hook-run-1" }],
+                },
+                toolName: "codex_hook_prompt",
+                input: { fragments: [{ text: "AGENTS.md instructions", hookRunId: "hook-run-1" }] },
+            },
+            {
+                item: {
+                    type: "subAgentActivity",
+                    id: "subagent_1",
+                    kind: "started",
+                    agentThreadId: "thr_agent",
+                    agentPath: "/repo",
+                },
+                toolName: "codex_sub_agent_activity",
+                input: { kind: "started", agentThreadId: "thr_agent", agentPath: "/repo" },
+            },
+            {
+                item: { type: "enteredReviewMode", id: "review_enter_1", review: "Review current diff" },
+                toolName: "codex_review_mode_entered",
+                input: { review: "Review current diff" },
+            },
+            {
+                item: { type: "exitedReviewMode", id: "review_exit_1", review: "Review current diff" },
+                toolName: "codex_review_mode_exited",
+                input: { review: "Review current diff" },
+            },
+        ];
+
+        const events = [
+            { method: "turn/started", params: { threadId: "thr", turn: { id: "turn" } } },
+            ...cases.flatMap(({ item }) => [
+                { method: "item/started", params: { item, threadId: "thr", turnId: "turn" } },
+                { method: "item/completed", params: { item, threadId: "thr", turnId: "turn" } },
+            ]),
+            {
+                method: "turn/completed",
+                params: {
+                    threadId: "thr",
+                    turn: { id: "turn", items: [], status: "completed" as const, error: null },
+                },
+            },
+        ];
+
+        const parts = events.flatMap((event) => mapper.map(event));
+
+        expect(parts).toEqual([
+            { type: "stream-start", warnings: [] },
+            ...cases.flatMap(({ item, toolName, input }) => [
+                {
+                    type: "tool-call",
+                    toolCallId: item.id,
+                    toolName,
+                    input: JSON.stringify(input),
+                    providerExecuted: true,
+                    dynamic: true,
+                },
+                {
+                    type: "tool-result",
+                    toolCallId: item.id,
+                    toolName,
+                    result: { item },
+                },
+            ]),
             {
                 type: "finish",
                 finishReason: { unified: "stop", raw: "completed" },

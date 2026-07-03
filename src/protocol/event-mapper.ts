@@ -9,38 +9,19 @@ import type { ItemCompletedNotification } from "./app-server-protocol/v2/ItemCom
 import type { ItemStartedNotification } from "./app-server-protocol/v2/ItemStartedNotification";
 import type { McpToolCallProgressNotification } from "./app-server-protocol/v2/McpToolCallProgressNotification";
 import type { ReasoningSummaryPartAddedNotification } from "./app-server-protocol/v2/ReasoningSummaryPartAddedNotification";
-import type { ThreadItem } from "./app-server-protocol/v2/ThreadItem";
 import type { ThreadTokenUsageUpdatedNotification } from "./app-server-protocol/v2/ThreadTokenUsageUpdatedNotification";
 import type { TurnCompletedNotification } from "./app-server-protocol/v2/TurnCompletedNotification";
 import type { TurnStartedNotification } from "./app-server-protocol/v2/TurnStartedNotification";
 import type { TurnStatus } from "./app-server-protocol/v2/TurnStatus";
 import { withProviderMetadata } from "./provider-metadata";
+import {
+    type CodexRenderableThreadItem,
+    type CodexThreadItemToolInvocation,
+    stringifyToolInput,
+    toolInvocationForItem,
+    webSearchHasContent,
+} from "./shared-item-extractors";
 import type { CodexDynamicToolCallItem } from "./types";
-
-// dynamicToolCall is intentionally excluded: its tool-call part is emitted by
-// the cross-call handler in model.ts (without providerExecuted), so the mapper
-// must not emit a providerExecuted tool-call or a premature tool-result for it.
-const NATIVE_TOOL_RESULT_TYPES: Set<ThreadItem["type"]> = new Set(["commandExecution", "fileChange", "mcpToolCall", "webSearch"]);
-
-/**
- * True when a webSearch item carries something worth surfacing — a non-empty
- * query or a concrete action (search/openPage/findInPage). Codex always emits
- * webSearch item/started as a contentless placeholder (empty query +
- * `{type:"other"}`) and only fills the query/action at item/completed, so this
- * gates emission to the completion event and drops abandoned placeholders.
- */
-function webSearchHasContent(query: string | null | undefined, action: { type: string } | null | undefined): boolean
-{
-    if (typeof query === "string" && query.trim().length > 0)
-    {
-        return true;
-    }
-    if (!action)
-    {
-        return false;
-    }
-    return action.type !== "other";
-}
 
 export interface CodexEventMapperInput
 {
@@ -56,6 +37,7 @@ interface DeltaParams
 }
 
 type DynamicToolCallItem = CodexDynamicToolCallItem;
+type CodexThreadItemToolStart = Pick<CodexThreadItemToolInvocation, "toolCallId" | "toolName" | "input">;
 
 const EMPTY_USAGE: LanguageModelV3Usage = {
     inputTokens: {
@@ -282,7 +264,7 @@ export class CodexEventMapper
     private handleItemStarted(params: unknown): LanguageModelV3StreamPart[]
     {
         const p = (params ?? {}) as ItemStartedNotification;
-        const item = p.item;
+        const item = p.item as CodexRenderableThreadItem | undefined;
         if (!item?.id)
         {
             return [];
@@ -299,17 +281,7 @@ export class CodexEventMapper
                 break;
             }
             case "commandExecution": {
-                this.ensureStreamStarted(parts);
-                const toolName = "codex_command_execution";
-                this.openToolCalls.set(item.id, { toolName });
-                parts.push(this.withMeta({
-                    type: "tool-call",
-                    toolCallId: item.id,
-                    toolName,
-                    input: JSON.stringify({ command: item.command, cwd: item.cwd }),
-                    providerExecuted: true,
-                    dynamic: true,
-                }));
+                this.startProviderToolCall(parts, item);
                 break;
             }
             case "dynamicToolCall": {
@@ -321,83 +293,37 @@ export class CodexEventMapper
                     // fires without adding it to openToolCalls (which would cause
                     // handleTurnCompleted to emit a spurious error tool-result).
                     this.ensureStreamStarted(parts);
-                    if (item.id)
-                    {
-                        this._sdkDynamicToolCallIds.add(item.id);
-                    }
-                }
-                else
-                {
-                    // Non-cross-call mode: emit providerExecuted tool-call so telemetry
-                    // is preserved. item/completed will emit the tool-result.
-                    parts.push(...this.startDynamicToolCall({
-                        id: item.id,
-                        tool: (item).tool,
-                        arguments: (item).arguments ?? {},
-                    }));
-                }
-                break;
-            }
-            case "fileChange": {
-                this.ensureStreamStarted(parts);
-                const toolName = "codex_file_change";
-                this.openToolCalls.set(item.id, { toolName });
-                parts.push(this.withMeta({
-                    type: "tool-call",
-                    toolCallId: item.id,
-                    toolName,
-                    input: JSON.stringify({ changes: item.changes, status: item.status }),
-                    providerExecuted: true,
-                    dynamic: true,
-                }));
-                break;
-            }
-            case "webSearch": {
-                this.ensureStreamStarted(parts);
-                // Codex always emits webSearch item/started as an empty placeholder
-                // (query "", action {type:"other"}); the real query/action only arrive
-                // at item/completed. Suppress the placeholder here so an abandoned
-                // search (item/started with no item/completed) never surfaces as a
-                // phantom tool-call. The full call + result are emitted from
-                // item/completed (see handleItemCompleted). A search that already has
-                // content at start (unexpected today) is still emitted live here.
-                if (!webSearchHasContent(item.query, item.action))
-                {
+                    this._sdkDynamicToolCallIds.add(item.id);
                     break;
                 }
-                const toolName = "codex_web_search";
-                this.openToolCalls.set(item.id, { toolName });
-                parts.push(this.withMeta({
-                    type: "tool-call",
-                    toolCallId: item.id,
-                    toolName,
-                    input: JSON.stringify({ query: item.query, action: item.action ?? undefined }),
-                    providerExecuted: true,
-                    dynamic: true,
-                }));
+
+                // Non-cross-call mode: emit providerExecuted tool-call so telemetry
+                // is preserved. item/completed will emit the tool-result.
+                this.startProviderToolCall(parts, item);
                 break;
             }
-            case "mcpToolCall": {
-                this.ensureStreamStarted(parts);
-                const toolName = `mcp:${item.server}/${item.tool}`;
-                this.openToolCalls.set(item.id, { toolName });
-                parts.push(this.withMeta({
-                    type: "tool-call",
-                    toolCallId: item.id,
-                    toolName,
-                    input: JSON.stringify(item.arguments ?? {}),
-                    providerExecuted: true,
-                    dynamic: true,
-                }));
-                break;
-            }
-            case "reasoning":
-            case "plan":
+            case "fileChange":
+            case "mcpToolCall":
             case "collabAgentToolCall":
+            case "collabToolCall":
             case "imageView":
             case "contextCompaction":
             case "enteredReviewMode":
-            case "exitedReviewMode": {
+            case "exitedReviewMode":
+            case "hookPrompt":
+            case "subAgentActivity":
+                this.startProviderToolCall(parts, item);
+                break;
+            case "webSearch":
+                this.ensureStreamStarted(parts);
+                // Codex usually emits webSearch item/started as an empty placeholder
+                // and fills query/action at item/completed. The shared extractor
+                // suppresses placeholders here and handleItemCompleted emits the
+                // complete call/result pair once content exists.
+                this.startProviderToolCall(parts, item);
+                break;
+            case "reasoning":
+            case "plan": {
                 this.emitReasoningDelta(parts, item.id, "");
                 break;
             }
@@ -435,7 +361,7 @@ export class CodexEventMapper
     private handleItemCompleted(params: unknown): LanguageModelV3StreamPart[]
     {
         const p = (params ?? {}) as ItemCompletedNotification;
-        const item = p.item;
+        const item = p.item as CodexRenderableThreadItem | undefined;
         if (!item?.id)
         {
             return [];
@@ -464,9 +390,14 @@ export class CodexEventMapper
                 this.openTextParts.delete(item.id);
             }
         }
-        else if ((NATIVE_TOOL_RESULT_TYPES.has(item.type) || (item.type === "dynamicToolCall" && !this._crossCallMode)) && this.openToolCalls.has(item.id))
+        else if (this.openToolCalls.has(item.id))
         {
             const tracked = this.openToolCalls.get(item.id)!;
+            const invocation = toolInvocationForItem(item);
+            if (!invocation)
+            {
+                return parts;
+            }
 
             // A replayed completion (adopted from a previous step) can be the
             // first part of this stream — make sure stream-start precedes it.
@@ -476,7 +407,7 @@ export class CodexEventMapper
                 type: "tool-result",
                 toolCallId: item.id,
                 toolName: tracked.toolName,
-                result: { item },
+                result: invocation.result,
             }));
 
             this.openToolCalls.delete(item.id);
@@ -487,20 +418,24 @@ export class CodexEventMapper
             // handleItemStarted; the real query/action arrive here. Emit the full
             // provider-executed call + result now (the search ran to completion).
             this.ensureStreamStarted(parts);
-            const toolName = "codex_web_search";
+            const invocation = toolInvocationForItem(item);
+            if (!invocation)
+            {
+                return parts;
+            }
             parts.push(this.withMeta({
                 type: "tool-call",
-                toolCallId: item.id,
-                toolName,
-                input: JSON.stringify({ query: item.query, action: item.action ?? undefined }),
+                toolCallId: invocation.toolCallId,
+                toolName: invocation.toolName,
+                input: stringifyToolInput(invocation.input),
                 providerExecuted: true,
                 dynamic: true,
             }));
             parts.push(this.withMeta({
                 type: "tool-result",
-                toolCallId: item.id,
-                toolName,
-                result: { item },
+                toolCallId: invocation.toolCallId,
+                toolName: invocation.toolName,
+                result: invocation.result,
             }));
         }
         else if (this.openReasoningParts.has(item.id))
@@ -692,19 +627,38 @@ export class CodexEventMapper
         }
 
         const parts: LanguageModelV3StreamPart[] = [];
-        this.ensureStreamStarted(parts);
-
-        this.openToolCalls.set(item.id, { toolName: item.tool });
-        parts.push(this.withMeta({
-            type: "tool-call",
+        this.startProviderToolCall(parts, {
             toolCallId: item.id,
             toolName: item.tool,
-            input: JSON.stringify(item.arguments ?? {}),
+            input: item.arguments ?? {},
+        });
+
+        return parts;
+    }
+
+    private startProviderToolCall(
+        parts: LanguageModelV3StreamPart[],
+        itemOrInvocation: CodexRenderableThreadItem | CodexThreadItemToolStart,
+    ): void
+    {
+        const invocation = "toolCallId" in itemOrInvocation
+            ? itemOrInvocation
+            : toolInvocationForItem(itemOrInvocation);
+        if (!invocation || this.openToolCalls.has(invocation.toolCallId))
+        {
+            return;
+        }
+
+        this.ensureStreamStarted(parts);
+        this.openToolCalls.set(invocation.toolCallId, { toolName: invocation.toolName });
+        parts.push(this.withMeta({
+            type: "tool-call",
+            toolCallId: invocation.toolCallId,
+            toolName: invocation.toolName,
+            input: stringifyToolInput(invocation.input),
             providerExecuted: true,
             dynamic: true,
         }));
-
-        return parts;
     }
 
     // thread/tokenUsage/updated

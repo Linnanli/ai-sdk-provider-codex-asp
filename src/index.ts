@@ -41,6 +41,26 @@ export {
     CodexProviderError,
 } from "./errors";
 export type {
+    CodexHistoryClientSettings,
+    CodexHistoryJsonRpcClientLike,
+    CodexHistorySortDirection,
+    CodexHistorySortKey,
+    CodexThreadForkParams,
+    CodexThreadForkResponse,
+    CodexThreadListParams,
+    CodexThreadListResponse,
+    CodexThreadReadParams,
+    CodexThreadReadResponse,
+    CodexTurnListParams,
+} from "./history-client";
+export { CodexHistoryClient, createCodexHistoryClient } from "./history-client";
+export type { CodexThreadForUi, CodexTurnForUi } from "./history-mapper";
+export {
+    mapCodexThreadItemToUiPart,
+    mapCodexThreadToUiMessages,
+    mapCodexTurnToUiMessages,
+} from "./history-mapper";
+export type {
     CodexCallOptions,
     CodexLanguageModelSettings,
     CodexModelConfig,
@@ -51,6 +71,24 @@ export { PACKAGE_NAME, PACKAGE_VERSION } from "./package-info";
 export type { CodexEventMapperInput, CodexEventMapperOptions } from "./protocol/event-mapper";
 export { CodexEventMapper } from "./protocol/event-mapper";
 export { CODEX_PROVIDER_ID, codexCallOptions, codexProviderMetadata, withProviderMetadata } from "./protocol/provider-metadata";
+export type {
+    CodexRenderableThreadItem,
+    CodexThreadItemToolInvocation,
+    LegacyCollabToolCallItem,
+    ThreadItemClassification,
+} from "./protocol/shared-item-extractors";
+export {
+    classifyThreadItem,
+    reasoningTextForItem,
+    stringifyToolInput,
+    THREAD_ITEM_TYPE_COVERAGE,
+    toolInputForItem,
+    toolInvocationForItem,
+    toolNameForItem,
+    toolResultForItem,
+    userInputText,
+    webSearchHasContent,
+} from "./protocol/shared-item-extractors";
 export type {
     AgentMessageDeltaNotification,
     ApprovalsReviewer,
