@@ -54,6 +54,7 @@ class ScriptedTransport extends MockTransport
                     approvalsReviewer: "user",
                     sandbox: { type: "dangerFullAccess" },
                     reasoningEffort: null,
+                    initialTurnsPage: null,
                 },
             });
             return;
@@ -394,7 +395,14 @@ describe("CodexLanguageModel.doStream", () =>
             (message): message is { method: string; params?: unknown } =>
                 "method" in message && message.method === "thread/resume",
         );
-        expect(resumeMessage?.params).toMatchObject({ threadId: "thr_existing" });
+        expect(resumeMessage?.params).toMatchObject({
+            threadId: "thr_existing",
+            initialTurnsPage: {
+                limit: 5,
+                itemsView: "full",
+                sortDirection: "desc",
+            },
+        });
         expect(resumeMessage?.params).not.toHaveProperty("persistExtendedHistory");
 
         const turnStartMessage = transport.sentMessages.find(

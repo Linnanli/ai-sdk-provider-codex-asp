@@ -983,6 +983,11 @@ export class CodexLanguageModel implements LanguageModelV3
                                 approvalsReviewer: callOptions?.approvalsReviewer ?? this.config.providerSettings.defaultThreadSettings?.approvalsReviewer,
                                 sandbox: callOptions?.sandbox ?? this.config.providerSettings.defaultThreadSettings?.sandbox,
                                 model: callOptions?.model || this.modelId || this.config.providerSettings.defaultModel,
+                                initialTurnsPage: {
+                                    limit: 5,
+                                    itemsView: "full" as const,
+                                    sortDirection: "desc" as const,
+                                },
                             });
                             debugLog?.("outbound", "thread/resume", resumeParams);
                             const resumeResult = await client.request<ThreadResumeResponse>(
