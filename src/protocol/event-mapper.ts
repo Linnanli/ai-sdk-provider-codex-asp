@@ -68,6 +68,12 @@ function toFinishReason(status: TurnStatus | undefined): LanguageModelV3FinishRe
     }
 }
 
+function turnErrorMessage(completed: TurnCompletedNotification): string | undefined
+{
+    const message = completed.turn?.error?.message?.trim();
+    return message || undefined;
+}
+
 export interface CodexEventMapperOptions
 {
     /** Emit plan updates as tool-call/tool-result parts. Default: true. */
@@ -747,6 +753,11 @@ export class CodexEventMapper
             this.planSequenceByTurnId.delete(completed.turn.id);
         }
         const usage = this.latestUsage ?? EMPTY_USAGE;
+        const errorMessage = turnErrorMessage(completed);
+        if (errorMessage)
+        {
+            parts.push(this.withMeta({ type: "error", error: new Error(errorMessage) }));
+        }
         parts.push(this.withMeta({ type: "finish", finishReason: toFinishReason(completed.turn?.status), usage }));
         return parts;
     }

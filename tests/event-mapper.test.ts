@@ -1525,4 +1525,35 @@ describe("CodexEventMapper", () =>
             },
         ]);
     });
+
+    it("emits an error stream part when a completed turn carries an error", () =>
+    {
+        const mapper = new CodexEventMapper();
+
+        const parts = mapper.map({
+            method: "turn/completed",
+            params: {
+                threadId: "thread-1",
+                turn: {
+                    id: "turn-1",
+                    items: [],
+                    itemsView: "notLoaded",
+                    error: {
+                        message: "The free quota has been exhausted.",
+                        codexErrorInfo: "usageLimitExceeded",
+                        additionalDetails: null,
+                    },
+                    status: "failed",
+                    startedAt: 1,
+                    completedAt: 2,
+                    durationMs: 1,
+                },
+            },
+        });
+
+        expect(parts.map((part) => part.type)).toEqual(["stream-start", "error", "finish"]);
+        const errorPart = parts.find((part) => part.type === "error");
+        expect(errorPart?.error).toBeInstanceOf(Error);
+        expect(errorPart?.error).toMatchObject({ message: "The free quota has been exhausted." });
+    });
 });
